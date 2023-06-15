@@ -52,7 +52,7 @@ class GraphBackdoor:
         topomask_test, featmask_test = gen_mask(
             init_dr_test, bkd_gids_test, bkd_nid_groups_test)
         Ainput_test, Xinput_test = gen_input(self.args, init_dr_test, bkd_gids_test)
-
+        exit()
         for rs_step in range(self.args.resample_steps):   # for each step, choose different sample
             
             # randomly select new graph backdoor samples
