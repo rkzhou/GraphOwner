@@ -117,9 +117,10 @@ def train_gtn(args, model, toponet: GraphTrojanNet, featnet: GraphTrojanNet,
     bkd_Xs = bkd_dr.data['features']
     
     nodenums = [len(adj) for adj in init_As]
-    glabels = torch.LongTensor(init_dr.data['labels']).to(cuda)
-    glabels[pset] = args.target_class
-    allset = np.concatenate((pset, nset))
+    #glabels = torch.LongTensor(init_dr.data['labels']).to(cuda)
+    #glabels[pset] = args.target_class
+    #allset = np.concatenate((pset, nset))
+    allset = {0}
     
     optimizer_topo = optim.Adam(toponet.parameters(),
                        lr=args.gtn_lr,
@@ -135,7 +136,7 @@ def train_gtn(args, model, toponet: GraphTrojanNet, featnet: GraphTrojanNet,
     topo_thrd = torch.tensor(args.topo_thrd).to(cuda)
     criterion = nn.CrossEntropyLoss()
     
-    toponet.train()    
+    toponet.train()
     for _ in tqdm(range(args.gtn_epochs), desc="training topology generator"): 
         optimizer_topo.zero_grad()
         # generate new adj_list by dr.data['adj_list']
@@ -147,12 +148,10 @@ def train_gtn(args, model, toponet: GraphTrojanNet, featnet: GraphTrojanNet,
             # bkd_dr.data['adj_list'][gid] = torch.add(rst_bkdA, init_As[gid])
             bkd_dr.data['adj_list'][gid] = torch.add(rst_bkdA[:nodenums[gid], :nodenums[gid]], init_As[gid])   # only current position in cuda
             SendtoCPU(gid, [init_As, Ainputs, topomasks])
-            
         loss = forwarding(args, bkd_dr, model, allset, criterion)
         loss.backward()
         optimizer_topo.step()
         torch.cuda.empty_cache()
-        
     toponet.eval()
     toponet.to(cpu)
     model.to(cpu)

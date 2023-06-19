@@ -33,11 +33,28 @@ class GraphBackdoor:
         model = copy.deepcopy(self.benign_model).to(self.cuda)
         # pick up initial candidates
         bkd_gids_test, bkd_nids_test, bkd_nid_groups_test = self.bkd_cdd(training_nodes_index, testing_nodes_index, 'test')
-
+        test_transform_nodes = set()
+        for gid in bkd_gids_test:
+            for node_group in bkd_nid_groups_test[gid]:
+                test_transform_nodes = test_transform_nodes.union(set(node_group))
+                nei = get_neighbors(node_group, self.benign_dr.data['adj_list'][gid], 2)
+                nei = set(nei)
+                test_transform_nodes = test_transform_nodes.union(nei)
+        test_transform_nodes = set(testing_nodes_index).intersection(test_transform_nodes)
+        test_unchanged_nodes = set(testing_nodes_index).difference(test_transform_nodes)
+        
+        test_nodes_in_target_class = set()
+        test_nodes_notin_target_class = set()
+        for node_index in test_transform_nodes:
+            if self.benign_dr.data['nlabels'][0][node_index] == args.target_class:
+                test_nodes_in_target_class.add(node_index)
+            else:
+                test_nodes_notin_target_class.add(node_index)
+        
         nodenums = [adj.shape[0] for adj in self.benign_dr.data['adj_list']]
         nodemax = max(nodenums)
         featdim = np.array(self.benign_dr.data['features'][0]).shape[1]
-        
+
         # init two generators for topo/feat
         toponet = gta.GraphTrojanNet(nodemax, self.args.gtn_layernum)
         featnet = gta.GraphTrojanNet(featdim, self.args.gtn_layernum)
@@ -48,32 +65,45 @@ class GraphBackdoor:
         init_dr_test = self.init_trigger(
             self.args, copy.deepcopy(self.benign_dr), bkd_gids_test, bkd_nid_groups_test, 0.0, 0.0)
         bkd_dr_test = copy.deepcopy(init_dr_test)
-
+        
         topomask_test, featmask_test = gen_mask(
             init_dr_test, bkd_gids_test, bkd_nid_groups_test)
         Ainput_test, Xinput_test = gen_input(self.args, init_dr_test, bkd_gids_test)
-        exit()
+        
+
         for rs_step in range(self.args.resample_steps):   # for each step, choose different sample
             
             # randomly select new graph backdoor samples
-            bkd_gids_train, bkd_nids_train, bkd_nid_groups_train = self.bkd_cdd('train')
-
+            bkd_gids_train, bkd_nids_train, bkd_nid_groups_train = self.bkd_cdd(training_nodes_index, testing_nodes_index,'train')
+            
+            train_transform_nodes = set()
+            for gid in bkd_gids_train:
+                for node_group in bkd_nid_groups_train[gid]:
+                    train_transform_nodes = train_transform_nodes.union(set(node_group))
+                    nei = get_neighbors(node_group, self.benign_dr.data['adj_list'][gid], 2)
+                    nei = set(nei)
+                    train_transform_nodes = train_transform_nodes.union(nei)
+            train_transform_nodes = set(training_nodes_index).intersection(train_transform_nodes)
+            train_unchanged_nodes = set(training_nodes_index).difference(train_transform_nodes)
+            
             # positive/negtive sample set
             pset = bkd_gids_train
-            nset = list(set(self.benign_dr.data['splits']['train'])-set(pset))
+            nset = list([0])
 
-            if self.args.pn_rate != None:
-                if len(pset) > len(nset):
-                    repeat = int(np.ceil(len(pset)/(len(nset)*self.args.pn_rate)))
-                    nset = list(nset) * repeat
-                else:
-                    repeat = int(np.ceil((len(nset)*self.args.pn_rate)/len(pset)))
-                    pset = list(pset) * repeat
+            # if self.args.pn_rate != None:
+            #     if len(pset) > len(nset):
+            #         repeat = int(np.ceil(len(pset)/(len(nset)*self.args.pn_rate)))
+            #         nset = list(nset) * repeat
+            #     else:
+            #         repeat = int(np.ceil((len(nset)*self.args.pn_rate)/len(pset)))
+            #         pset = list(pset) * repeat
             
             # init train data
             # NOTE: for data that can only add perturbation on features, only init the topo value
             init_dr_train = self.init_trigger(
                 self.args, copy.deepcopy(self.benign_dr), bkd_gids_train, bkd_nid_groups_train, 0.0, 0.0)
+            for node_index in train_transform_nodes:
+                (init_dr_train.data['nlabels'])[0][node_index] = args.target_class
             bkd_dr_train = copy.deepcopy(init_dr_train)
 
             topomask_train, featmask_train = gen_mask(
@@ -108,7 +138,7 @@ class GraphBackdoor:
                         rst_bkdX[:nodenums[gid]].detach().cpu(), init_dr_train.data['features'][gid]) 
                     
                 # train GNN
-                train_model(self.args, bkd_dr_train, model, list(set(pset)), list(set(nset)))
+                train_model(self.args, bkd_dr_train, model, train_transform_nodes, train_unchanged_nodes)
                 
                 #----------------- Evaluation -----------------#
                 for gid in bkd_gids_test:
@@ -131,17 +161,17 @@ class GraphBackdoor:
                     bkd_dr_test.data['features'][gid] = torch.add(
                         rst_bkdX[:nodenums[gid]], torch.as_tensor(copy.deepcopy(init_dr_test.data['features'][gid])))
                     
-                # graph originally in target label
-                yt_gids = [gid for gid in bkd_gids_test 
-                        if self.benign_dr.data['labels'][gid]==self.args.target_class] 
-                # graph originally notin target label
-                yx_gids = list(set(bkd_gids_test) - set(yt_gids))
-                clean_graphs_test = list(set(self.benign_dr.data['splits']['test'])-set(bkd_gids_test))
+                # # graph originally in target label
+                # yt_gids = [gid for gid in bkd_gids_test 
+                #         if self.benign_dr.data['labels'][gid]==self.args.target_class] 
+                # # graph originally notin target label
+                # yx_gids = list(set(bkd_gids_test) - set(yt_gids))
+                # clean_graphs_test = list(set(self.benign_dr.data['splits']['test'])-set(bkd_gids_test))
 
                 # feed into GNN, test success rate
-                bkd_acc = evaluate(self.args, bkd_dr_test, model, bkd_gids_test)
-                flip_rate = evaluate(self.args, bkd_dr_test, model,yx_gids)
-                clean_acc = evaluate(self.args, bkd_dr_test, model, clean_graphs_test)
+                bkd_acc = evaluate(self.args, bkd_dr_test, model, test_transform_nodes, 'success')
+                flip_rate = evaluate(self.args, bkd_dr_test, model,test_nodes_notin_target_class, 'flip')
+                clean_acc = evaluate(self.args, bkd_dr_test, model, test_unchanged_nodes, 'clean')
                 
                 # save gnn
                 if rs_step == 0 and (bi_step==self.args.bilevel_steps-1 or abs(bkd_acc-100) <1e-4):
@@ -197,12 +227,19 @@ class GraphBackdoor:
                         if v1!=v2:
                             src.append(v1)
                             dst.append(v2)
-                for j in range(len(src)):
-                    dr.data['adj_list'][gid][src[j], dst[j]] = init_edge
+                a = np.array(dr.data['adj_list'][gid])
+                a[src, dst] = init_edge
+                dr.data['adj_list'][gid] = a.tolist()
+                featdim = len(dr.data['features'][0][0])
+                a = np.array(dr.data['features'][gid])
+                a[group] = np.ones((len(group), featdim)) * init_feat
+                dr.data['features'][gid] = a.tolist()
+                #for j in range(len(src)):
+                #    dr.data['adj_list'][gid][src[j], dst[j]] = init_edge
 
                 # change features in-place
-                featdim = len(dr.data['features'][0][0])
-                dr.data['features'][gid][group] = np.ones((len(group), featdim)) * init_feat
+                #featdim = len(dr.data['features'][0][0])
+                #dr.data['features'][gid][group] = np.ones((len(group), featdim)) * init_feat
             
                 # change graph/node labels
                 assert args.target_class is not None
@@ -210,8 +247,29 @@ class GraphBackdoor:
                     dr.data['nlabels'][gid][v] = args.target_class
                  #dr.data['labels'][gid] = args.target_class
 
-        return dr  
+        return dr 
+    
 
+
+def get_neighbors(nodes, np_adj, khops):
+    def find_neighbors(nodes, adj, j, result):
+        _nodes = set()
+        if j == 0:
+            return
+        all_node_num = adj.shape[0]
+        for v in nodes:
+            for u in range(all_node_num):
+                if adj[v, u] == 1:
+                    result.add(u)
+                    _nodes.add(u)
+        find_neighbors(_nodes, adj, j-1, result)
+    
+    result = set()
+    find_neighbors(nodes, np_adj, khops, result)
+    neighbors = np.array(list(result))
+    #neighbors = neighbors[np.where(~np.in1d(neighbors, np.array(nodes)))]
+    return neighbors
+    
 if __name__ == '__main__':
     args = parse_args()
     attack = GraphBackdoor(args)

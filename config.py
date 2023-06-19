@@ -18,7 +18,7 @@ def add_model_group(group):
     group.add_argument('--num_head', type=int, default=2, help="GAT head number")
 
     group.add_argument('--batch_size', type=int, default=16)
-    group.add_argument('--train_epochs', type=int, default=1)
+    group.add_argument('--train_epochs', type=int, default=40)
     group.add_argument('--lr', type=float, default=0.01)
     group.add_argument('--lr_decay_steps', nargs='+', default=[25, 35], type=int)
     group.add_argument('--weight_decay', type=float, default=5e-4)
@@ -34,7 +34,7 @@ def add_atk_group(group):
     group.add_argument('--bkd_gratio_train', type=float, default=0.1, help="backdoor graph ratio in trainset")
     group.add_argument('--bkd_gratio_test', type=float, default=0.5, help="backdoor graph ratio in testset")
     group.add_argument('--bkd_num_pergraph', type=int, default=10, help="number of backdoor triggers per graph")
-    group.add_argument('--bkd_size', type=int, default=5, help="number of nodes for each trigger")
+    group.add_argument('--bkd_size', type=int, default=3, help="number of nodes for each trigger")
     group.add_argument('--target_class', type=int, default=None, help="the targeted node/graph label")
      
     group.add_argument('--gtn_layernum', type=int, default=3, help="layer number of GraphTrojanNet")

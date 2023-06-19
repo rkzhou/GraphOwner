@@ -42,7 +42,6 @@ def gen_mask(datareader, bkd_gids, bkd_nid_groups):
                 topomask[gid][nid][group] = 1
                 topomask[gid][nid][nid] = 0
                 featmask[gid][nid][::] = 1
-                
     return topomask, featmask
     
     

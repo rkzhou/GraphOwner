@@ -161,7 +161,7 @@ def node_level_run(args):
     # prepare model
     in_dim = loader.dataset.num_features
     out_dim = len(np.unique(loader.dataset.node_labels))
-    
+
     if args.model == 'gcn':
         model = GCN(in_dim, out_dim, hidden_dim=args.hidden_dim, dropout=args.dropout)
     elif args.model == 'gat':
@@ -197,14 +197,11 @@ def node_level_run(args):
             
             if len(output.shape)==1:
                 output = output.unsqueeze(0)
-            labels = torch.t(data[2])
-            labels = torch.flatten(labels)
             training_nodes_outputs = torch.zeros(training_size, output.shape[1])
             training_nodes_labels = torch.zeros(training_size, dtype=torch.long)
             for i in range(training_size):
-                training_nodes_outputs[i, :] = output[training_nodes_index[i], :]
-                training_nodes_labels[i] = labels[training_nodes_index[i]]
-            
+                training_nodes_outputs[i] = output[training_nodes_index[i]]
+                training_nodes_labels[i] = data[2][0][training_nodes_index[i]]
             loss = loss_fn(training_nodes_outputs, training_nodes_labels)
             loss.backward()
             optimizer.step()
@@ -231,22 +228,18 @@ def node_level_run(args):
                 output = model(data)
                 if len(output.shape)==1:
                     output = output.unsqueeze(0)
-                labels = torch.t(data[2])
-                labels = torch.flatten(labels)
                 testing_nodes_outputs = torch.zeros(testing_size, output.shape[1])
                 testing_nodes_labels = torch.zeros(testing_size, dtype=torch.long)
                 for i in range(testing_size):
-                    testing_nodes_outputs[i, :] = output[testing_nodes_index[i], :]
-                    testing_nodes_labels[i] = labels[testing_nodes_index[i]]
+                    testing_nodes_outputs[i] = output[testing_nodes_index[i]]
+                    testing_nodes_labels[i] = data[2][0][testing_nodes_index[i]]
                 
-                loss = loss_fn(testing_nodes_outputs, testing_nodes_labels, reduction='sum')
+                loss = loss_fn(testing_nodes_outputs, testing_nodes_labels)
                 test_loss += loss.item()
                 n_samples += testing_size
                 pred = predict_fn(testing_nodes_outputs)
 
                 #correct += pred.eq(data[2][15000:].detach().cpu().view_as(pred)).sum().item()
-                pred = pred.detach().cpu()
-                testing_nodes_labels = testing_nodes_labels.detach().cpu()
                 for i in range(testing_size):
                     if pred[i] == testing_nodes_labels[i]:
                         correct += 1
