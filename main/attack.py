@@ -9,8 +9,10 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import torch.optim.lr_scheduler as lr_scheduler
+import utils.extraction
+import networkx as nx
 
-from utils.datareader import DataReader
+from utils.datareader import DataReader, GraphData
 from utils.bkdcdd import select_cdd_graphs, select_cdd_nodes
 from utils.mask import gen_mask, recover_mask
 import main.benign as benign
@@ -18,6 +20,7 @@ import trojan.GTA as gta
 from trojan.input import gen_input
 from trojan.prop import train_model, evaluate
 from config import parse_args
+from main.benign import node_level_run
 
 class GraphBackdoor:
     def __init__(self, args) -> None:
@@ -75,7 +78,7 @@ class GraphBackdoor:
             
             # randomly select new graph backdoor samples
             bkd_gids_train, bkd_nids_train, bkd_nid_groups_train = self.bkd_cdd(training_nodes_index, testing_nodes_index,'train')
-            
+
             train_transform_nodes = set()
             for gid in bkd_gids_train:
                 for node_group in bkd_nid_groups_train[gid]:
@@ -105,6 +108,27 @@ class GraphBackdoor:
             for node_index in train_transform_nodes:
                 (init_dr_train.data['nlabels'])[0][node_index] = args.target_class
             bkd_dr_train = copy.deepcopy(init_dr_train)
+
+            ####evaluate edge centrality
+            total_train_EC, total_test_EC = 0.0, 0.0
+            total_train_NC, total_test_NC = 0.0, 0.0
+            gdata = GraphData(self.benign_dr, {0})
+            A = nx.from_numpy_matrix(gdata.adj_list[0])
+            degree_cen = nx.degree_centrality(A)
+            node_cen = nx.eigenvector_centrality(A)
+            for sub_group in bkd_nid_groups_train[0]:
+                for i in sub_group:
+                    total_train_EC += degree_cen[i]
+                    total_train_NC += node_cen[i]
+            
+            for sub_group in bkd_nid_groups_test[0]:
+                for i in sub_group:
+                    total_test_EC += degree_cen[i]
+                    total_test_NC += node_cen[i]
+            print(total_train_EC, total_test_EC)
+            print(total_train_NC, total_test_NC)
+
+            
 
             topomask_train, featmask_train = gen_mask(
                 init_dr_train, bkd_gids_train, bkd_nid_groups_train)
@@ -194,6 +218,7 @@ class GraphBackdoor:
                     print("Early Termination for 100% Attack Rate")
                     break
         print('Done')
+        return training_nodes_index, testing_nodes_index, self.benign_dr, bkd_dr_test, model, test_transform_nodes, test_nodes_notin_target_class, test_unchanged_nodes
 
 
     def bkd_cdd(self, training_nodes_index, testing_nodes_index, subset: str):
@@ -248,7 +273,6 @@ class GraphBackdoor:
                  #dr.data['labels'][gid] = args.target_class
 
         return dr 
-    
 
 
 def get_neighbors(nodes, np_adj, khops):
@@ -269,8 +293,31 @@ def get_neighbors(nodes, np_adj, khops):
     neighbors = np.array(list(result))
     #neighbors = neighbors[np.where(~np.in1d(neighbors, np.array(nodes)))]
     return neighbors
+
+
+def attack_extraction_model(args):
+    attack = GraphBackdoor(args)
+    training_nodes, testing_nodes, benign_dr, bkd_dr_test, model, test_transform_nodes, test_nodes_notin_target_class, test_unchanged_nodes = attack.run()
+
+    surrogate_train_subset = utils.extraction.split_subset(training_nodes, 0.5)
+    train_emb = utils.extraction.evaluate_target_response(args, model, benign_dr, surrogate_train_subset, 'embeddings')
+    train_labels = utils.extraction.evaluate_target_response(args, model, benign_dr, surrogate_train_subset, 'labels')
+    test_labels = utils.extraction.evaluate_target_response(args, model, benign_dr, testing_nodes, 'labels')
+    data = benign_dr, surrogate_train_subset, testing_nodes, train_emb, train_labels, test_labels
+    surrogate_model = utils.extraction.train_surrogate_model(args, data)
+
+
+    target_bkd_acc = evaluate(args, bkd_dr_test, model, test_transform_nodes, 'success')
+    target_flip_rate = evaluate(args, bkd_dr_test, model,test_nodes_notin_target_class, 'flip')
+    target_clean_acc = evaluate(args, bkd_dr_test, model, test_unchanged_nodes, 'clean')
+
+    surrogate_bkd_acc = evaluate(args, bkd_dr_test, surrogate_model, test_transform_nodes, 'success')
+    surrogate_flip_rate = evaluate(args, bkd_dr_test, surrogate_model,test_nodes_notin_target_class, 'flip')
+    surrogate_clean_acc = evaluate(args, bkd_dr_test, surrogate_model, test_unchanged_nodes, 'clean')
+
     
 if __name__ == '__main__':
     args = parse_args()
-    attack = GraphBackdoor(args)
-    attack.run()
+    attack_extraction_model(args)
+    #attack = GraphBackdoor(args)
+    #attack.run()

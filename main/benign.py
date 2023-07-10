@@ -146,6 +146,7 @@ def node_level_run(args):
     gdata = GraphData(dr, gid)
     loader = DataLoader(gdata, batch_size=args.batch_size, shuffle=False)
 
+
     # Randomly pick the index of nodes for training and testing
     node_num = len((loader.dataset.node_labels)[0])
     all_nodes_index = list(i for i in range(node_num))
@@ -193,7 +194,7 @@ def node_level_run(args):
             # if args.use_cont_node_attr:
             #     data[0] = norm_features(data[0])
             optimizer.zero_grad()
-            output = model(data)
+            output, _ = model(data)
             
             if len(output.shape)==1:
                 output = output.unsqueeze(0)
@@ -225,7 +226,7 @@ def node_level_run(args):
                     data[i] = data[i].to(cuda)
                 # if args.use_org_node_attr:
                 #     data[0] = norm_features(data[0])
-                output = model(data)
+                output, _ = model(data)
                 if len(output.shape)==1:
                     output = output.unsqueeze(0)
                 testing_nodes_outputs = torch.zeros(testing_size, output.shape[1])

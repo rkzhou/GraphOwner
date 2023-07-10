@@ -29,7 +29,7 @@ def forwarding(args, bkd_dr: DataReader, model, gids, criterion):
 #         assert batch_idx == 0, "In AdaptNet Train, we only need one GNN pass, batch-size=len(all trainset)"
         for i in range(len(data)):
             data[i] = data[i].to(cuda)
-        output = model(data)
+        output, _ = model(data)
         if len(output.shape)==1:
             output = output.unsqueeze(0)
         
@@ -94,7 +94,7 @@ def train_model(args, dr_train: DataReader, model, pset, nset):
         for batch_inx, data in enumerate(loader):
             for i in range(len(data)):
                 data[i] = data[i].to(cuda)
-            output = model(data)
+            output, _ = model(data)
             if len(output.shape)==1:
                 output = output.unsqueeze(0)
 
@@ -215,7 +215,7 @@ def evaluate(args, dr_test: DataReader, model, nodes, eval_type):
     for batch_idx, data in enumerate(loader):
         for i in range(len(data)):
             data[i] = data[i].cuda()
-        output = model(data)  # not softmax yet
+        output, _ = model(data)  # not softmax yet
         if len(output.shape)==1:
             output = output.unsqueeze(0)
         
